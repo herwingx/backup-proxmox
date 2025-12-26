@@ -11,6 +11,7 @@ logs/
 # Archivos de configuración con secretos
 .env
 *.env.local
+config.env
 
 # Editor configs
 .vscode/

@@ -16,7 +16,7 @@ DATA_DIR="/mnt/data"
 PROXMOX_STORAGE_ID="backups-vms" 
 
 # --- [2] CONFIGURACIÓN DE CLOUD (RCLONE) ---
-RCLONE_REMOTE="backup_proxmox" 
+RCLONE_REMOTE="gdrive" 
 GDRIVE_ROOT="Server Backups"
 GDRIVE_SYSTEM="Proxmox System"
 GDRIVE_DATA="Proxmox Data"
@@ -24,12 +24,24 @@ GDRIVE_DATA="Proxmox Data"
 # --- [3] CONFIGURACIÓN DE FRECUENCIA ---
 CLOUD_SYNC_DAYS=3 
 
+# --- [4] CONFIGURACIÓN DE TELEGRAM ---
+CONFIG_FILE="/etc/proxmox-backup/config.env"
+TELEGRAM_TOKEN=""
+TELEGRAM_CHAT_ID=""
+
+# Cargar configuración si existe
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+fi
+
 # --- VARIABLES DE SISTEMA ---
 HOST_NAME=$(hostname)
 DATE=$(date +%F)           # Ej: 2025-12-26 (Para logs y configs)
 PVE_DATE=$(date +%Y_%m_%d) # Ej: 2025_12_26 (Formato OBLIGATORIO para VZDump)
 DAY_OF_YEAR=$(date +%j)
 START_TIME=$(date +%s)
+BACKUP_STATUS="SUCCESS"
+ERROR_MSG=""
 
 # --- ESTILOS Y COLORES ---
 RED='\033[0;31m'
@@ -47,17 +59,41 @@ log_header() {
 log_info() { echo -e "${CYAN}ℹ INFO:${NC} $1"; }
 log_step() { echo -e "${YELLOW}➜ $1${NC}"; }
 log_success() { echo -e "${GREEN}✔ OK:${NC} $1"; }
-log_error() { echo -e "${RED}✖ ERROR:${NC} $1"; }
+log_error() { echo -e "${RED}✖ ERROR:${NC} $1"; BACKUP_STATUS="FAILED"; ERROR_MSG="$1"; }
 
+# --- FUNCIÓN DE TELEGRAM ---
+send_telegram() {
+    local MESSAGE="$1"
+    
+    # Solo enviar si Telegram está configurado
+    if [ -z "$TELEGRAM_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+        return 0
+    fi
+    
+    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+        -d chat_id="$TELEGRAM_CHAT_ID" \
+        -d text="$MESSAGE" \
+        -d parse_mode="Markdown" > /dev/null 2>&1
+}
 # ==============================================================================
 #  INICIO DEL PROCESO
 # ==============================================================================
 clear
 echo -e "${BLUE}"
-echo "   ___  ___  _____  __  __ __  __  ___  _  __ "
-echo "  | _ \| _ \/ _ \ \/ / |  \/  |/ _ \| |/ / "
-echo "  |  _/|   / (_) >  <  | |\/| | (_) |   <  "
-echo "  |_|  |_|_\\\___/_/\_\ |_|  |_|\___/|_|\_\ "
+cat << "EOF"
+  ╔════════════════════════════════════════════════════════════════════╗
+  ║                                                                    ║
+  ║   ____  ____   _____  ____  __  _____  ____  __                    ║
+  ║  |  _ \|  _ \ / _ \ \/ /  \/  |/ _ \ \/ /  | __ )  __ _  ___ ___   ║
+  ║  | |_) | |_) | | | \  /| |\/| | | | \  /   |  _ \ / _` |/ __/ __|  ║
+  ║  |  __/|  _ <| |_| /  \| |  | | |_| /  \   | |_) | (_| | (__\__ \  ║
+  ║  |_|   |_| \_\\___/_/\_\_|  |_|\___/_/\_\  |____/ \__,_|\___|___/  ║
+  ║                                                                    ║
+EOF
+echo -e "  ║              ${GREEN}★ SMART BACKUP SYSTEM v2.0 ★${BLUE}                      ║"
+cat << "EOF"
+  ╚════════════════════════════════════════════════════════════════════╝
+EOF
 echo -e "${NC}"
 echo "Iniciando Protocolo de Respaldo para: $HOST_NAME"
 echo "Fecha: $DATE | Día del año: $DAY_OF_YEAR"
@@ -179,7 +215,44 @@ fi
 # ==============================================================================
 END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
+ELAPSED_MIN=$(($ELAPSED / 60))
+ELAPSED_SEC=$(($ELAPSED % 60))
 
 echo -e "\n${BLUE}============================================================${NC}"
-echo -e "${GREEN} PROCESO COMPLETADO EN $(($ELAPSED / 60)) MIN Y $(($ELAPSED % 60)) SEG.${NC}"
+echo -e "${GREEN} PROCESO COMPLETADO EN ${ELAPSED_MIN} MIN Y ${ELAPSED_SEC} SEG.${NC}"
 echo -e "${BLUE}============================================================${NC}"
+
+# --- NOTIFICACIÓN POR TELEGRAM ---
+if [ "$BACKUP_STATUS" == "SUCCESS" ]; then
+    CLOUD_STATUS=""
+    if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
+        CLOUD_STATUS="☁️ Nube: Sincronizado"
+    else
+        NEXT_CLOUD=$((CLOUD_SYNC_DAYS - (DAY_OF_YEAR % CLOUD_SYNC_DAYS)))
+        CLOUD_STATUS="💾 Nube: En ${NEXT_CLOUD} día(s)"
+    fi
+
+    TELEGRAM_MSG="✅ *Backup Completado*
+
+🖥️ Host: \`$HOST_NAME\`
+📅 Fecha: $DATE
+⏱️ Duración: ${ELAPSED_MIN}m ${ELAPSED_SEC}s
+
+📦 Local: Guardado
+$CLOUD_STATUS
+
+_Proxmox Smart Backup System_"
+
+else
+    TELEGRAM_MSG="❌ *Backup Fallido*
+
+🖥️ Host: \`$HOST_NAME\`
+📅 Fecha: $DATE
+⏱️ Duración: ${ELAPSED_MIN}m ${ELAPSED_SEC}s
+
+⚠️ Error: $ERROR_MSG
+
+_Revisa los logs en /var/log/proxmox-backup/_"
+fi
+
+send_telegram "$TELEGRAM_MSG"
