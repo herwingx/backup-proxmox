@@ -41,6 +41,7 @@ PVE_DATE=$(date +%Y_%m_%d) # Ej: 2025_12_26 (Formato OBLIGATORIO para VZDump)
 DAY_OF_YEAR=$(date +%j)
 START_TIME=$(date +%s)
 BACKUP_STATUS="SUCCESS"
+CLOUD_OK=true
 ERROR_MSG=""
 
 # --- ESTILOS Y COLORES ---
@@ -154,17 +155,25 @@ if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
     
     # PASO A: Subir el backup de HOY (Copy = No borrar todavía)
     # --progress mostrará la velocidad y porcentaje
-    rclone copy "$BACKUP_DIR/dump" "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM" \
+    if rclone copy "$BACKUP_DIR/dump" "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM" \
         --transfers=4 \
         --progress \
         --include "*$PVE_DATE*" \
-        --include "*.log"
+        --include "*.log" 2>&1; then
+        log_success "Backups de VMs subidos a Drive."
+    else
+        log_error "Error al subir backups a Drive."
+        CLOUD_OK=false
+    fi
 
     # Subir config del host de hoy
-    rclone copy "$CONFIG_DEST/host-config-$HOST_NAME-$DATE.tar.gz" \
-        "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs"
-    
-    log_success "Carga de archivos completada."
+    if rclone copy "$CONFIG_DEST/host-config-$HOST_NAME-$DATE.tar.gz" \
+        "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs" 2>&1; then
+        log_success "Configs subidas a Drive."
+    else
+        log_error "Error al subir configs a Drive."
+        CLOUD_OK=false
+    fi
 
     # PASO B: Limpieza Agresiva (Solo dejar el más nuevo)
     # Borra todo lo que tenga más de 1 día (24 horas) de antigüedad
@@ -194,15 +203,18 @@ if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
     log_info "Destino: $GDRIVE_ROOT/$GDRIVE_DATA"
     log_step "Escaneando cambios en archivos..."
 
-    rclone sync "$DATA_DIR" "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_DATA" \
+    if rclone sync "$DATA_DIR" "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_DATA" \
         --transfers=8 \
         --progress \
         --fast-list \
         --exclude ".Trash/**" \
         --exclude "lost+found/**" \
-        --exclude ".DS_Store"
-
-    log_success "Datos sincronizados."
+        --exclude ".DS_Store" 2>&1; then
+        log_success "Datos sincronizados a Drive."
+    else
+        log_error "Error al sincronizar datos a Drive."
+        CLOUD_OK=false
+    fi
 
 else
     echo -e "${YELLOW}SKIP: Hoy no toca subida a la nube.${NC}"
@@ -226,10 +238,14 @@ echo -e "${BLUE}============================================================${NC
 if [ "$BACKUP_STATUS" == "SUCCESS" ]; then
     CLOUD_STATUS=""
     if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
-        CLOUD_STATUS="☁️ Nube: Sincronizado"
+        if [ "$CLOUD_OK" = true ]; then
+            CLOUD_STATUS="☁️ Drive: ✅ Sincronizado"
+        else
+            CLOUD_STATUS="☁️ Drive: ❌ Error al sincronizar"
+        fi
     else
         NEXT_CLOUD=$((CLOUD_SYNC_DAYS - (DAY_OF_YEAR % CLOUD_SYNC_DAYS)))
-        CLOUD_STATUS="💾 Nube: En ${NEXT_CLOUD} día(s)"
+        CLOUD_STATUS="💾 Drive: En ${NEXT_CLOUD} día(s)"
     fi
 
     TELEGRAM_MSG="✅ *Backup Completado*

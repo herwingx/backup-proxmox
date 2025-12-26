@@ -223,13 +223,12 @@ if [ -n "$RCLONE_TOKEN" ]; then
     
     mkdir -p "$RCLONE_CONFIG_DIR"
     
-    cat > "$RCLONE_CONFIG_FILE" << EOF
-[gdrive]
-type = drive
-scope = drive
-token = $RCLONE_TOKEN
-team_drive = 
-EOF
+    # Usar printf para preservar las comillas del JSON
+    printf '%s\n' "[gdrive]" \
+        "type = drive" \
+        "scope = drive" \
+        "token = ${RCLONE_TOKEN}" \
+        "team_drive = " > "$RCLONE_CONFIG_FILE"
 
     chmod 600 "$RCLONE_CONFIG_FILE"
     log_success "rclone.conf generado: $RCLONE_CONFIG_FILE"
