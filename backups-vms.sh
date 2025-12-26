@@ -105,7 +105,7 @@ echo "Estrategia Nube: Subir CADA $CLOUD_SYNC_DAYS DÍAS y mantener SOLO EL ÚLT
 # ------------------------------------------------------------------------------
 
 # 1.1 RESPALDO DE CONFIGURACIÓN DEL HOST
-log_header "[1/4] Respaldo de Configuración del Host (Local)"
+log_header "[1/5] Respaldo de Configuración del Host (Local)"
 
 CONFIG_DEST="$BACKUP_DIR/host-configs"
 mkdir -p "$CONFIG_DEST"
@@ -121,7 +121,7 @@ else
 fi
 
 # 1.2 RESPALDO DE VMS Y LXC
-log_header "[2/4] Ejecutando VZDump (VMs y Contenedores)"
+log_header "[2/5] Ejecutando VZDump (VMs y Contenedores)"
 log_info "Storage: $PROXMOX_STORAGE_ID | Compresión: ZSTD"
 log_step "Iniciando copias de seguridad... (Esto puede tardar varios minutos)"
 log_step "Por favor, espera a que termine cada máquina:"
@@ -141,20 +141,50 @@ fi
 # ------------------------------------------------------------------------------
 # FASE 2: SINCRONIZACIÓN A LA NUBE (CONDICIONAL)
 # ------------------------------------------------------------------------------
-log_header "[3/4] Verificación de Ciclo de Nube"
+# ------------------------------------------------------------------------------
+# FASE 2: CLOUD CONFIGS (SIEMPRE SE EJECUTA)
+# ------------------------------------------------------------------------------
+log_header "[3/5] Respaldo de Configs a Nube (Diario)"
+
+# 2.1 SUBIR CONFIGS
+log_info "Destino: $GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs"
+if rclone copy "$CONFIG_DEST/host-config-$HOST_NAME-$DATE.tar.gz" \
+    "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs" 2>&1; then
+    log_success "Configs subidas a Drive."
+else
+    log_error "Error al subir configs a Drive."
+    CLOUD_OK=false
+fi
+
+# 2.2 LIMPIEZA DE CONFIGS ANTIGUAS
+log_step "Mantenimiento: Dejando solo la versión más reciente..."
+rclone delete "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs" \
+    --min-age 1d \
+    --include "*.tar.gz" 2>&1
+
+if [ $? -eq 0 ]; then
+    log_success "Configs antiguas eliminadas."
+else
+    log_error "Error al limpiar configs antiguas."
+fi
+
+
+# ------------------------------------------------------------------------------
+# FASE 3: CLOUD VMS & DATA (CADA 3 DÍAS)
+# ------------------------------------------------------------------------------
+log_header "[4/5] Verificación de Ciclo de Nube (VMs y Data)"
 
 if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
     
-    echo -e "${GREEN}★ HOY TOCA SINCRONIZACIÓN A GOOGLE DRIVE ★${NC}"
+    echo -e "${GREEN}★ HOY TOCA SINCRONIZACIÓN COMPLETA (VMs + DATA) ★${NC}"
     
     # ---------------------------------------------------------
-    # 2.1 SUBIR SISTEMA (Mantiene SOLO EL ÚLTIMO en Drive)
+    # 3.1 SUBIR VMS (Mantiene SOLO EL ÚLTIMO en Drive)
     # ---------------------------------------------------------
     log_info "Destino: $GDRIVE_ROOT/$GDRIVE_SYSTEM"
-    log_step "Subiendo SOLO los backups generados HOY ($PVE_DATE)..."
+    log_step "Subiendo backups de VMs hoy ($PVE_DATE)..."
     
-    # PASO A: Subir el backup de HOY (Copy = No borrar todavía)
-    # --progress mostrará la velocidad y porcentaje
+    # Subir Dumps
     if rclone copy "$BACKUP_DIR/dump" "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM" \
         --transfers=4 \
         --progress \
@@ -166,21 +196,10 @@ if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
         CLOUD_OK=false
     fi
 
-    # Subir config del host de hoy
-    if rclone copy "$CONFIG_DEST/host-config-$HOST_NAME-$DATE.tar.gz" \
-        "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs" 2>&1; then
-        log_success "Configs subidas a Drive."
-    else
-        log_error "Error al subir configs a Drive."
-        CLOUD_OK=false
-    fi
-
-    # PASO B: Limpieza Agresiva (Solo dejar el más nuevo)
-    # Borra todo lo que tenga más de 1 día (24 horas) de antigüedad
-    log_header "LIMPIEZA DE NUBE"
-    log_step "Eliminando versiones antiguas en Drive para liberar espacio..."
+    # Limpieza Agresiva de VMs
+    log_header "LIMPIEZA DE VMS ANTIGUAS"
+    log_step "Eliminando versiones antiguas en Drive..."
     
-    # Limpiar Dumps de VMs viejos
     rclone delete "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM" \
         --min-age 1d \
         --include "*.zst" \
@@ -189,19 +208,14 @@ if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
         --include "*.tar.zst" \
         --verbose
 
-    # Limpiar Configs viejas
-    rclone delete "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs" \
-        --min-age 1d \
-        --include "*.tar.gz"
-
-    log_success "Historial antiguo eliminado. Solo queda la versión de hoy."
+    log_success "Historial de VMs limpiado (Solo queda el de hoy)."
 
     # ---------------------------------------------------------
-    # 2.2 SUBIR DATOS
+    # 3.2 SUBIR DATOS
     # ---------------------------------------------------------
-    log_header "[4/4] Sincronizando Datos (/mnt/data)"
+    log_header "[5/5] Sincronizando Datos (/mnt/data)"
     log_info "Destino: $GDRIVE_ROOT/$GDRIVE_DATA"
-    log_step "Escaneando cambios en archivos..."
+    log_step "Escaneando cambios..."
 
     if rclone sync "$DATA_DIR" "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_DATA" \
         --transfers=8 \
@@ -217,9 +231,9 @@ if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
     fi
 
 else
-    echo -e "${YELLOW}SKIP: Hoy no toca subida a la nube.${NC}"
-    echo "El backup hoy solo queda en disco local (Rotación de 3 días)."
-    echo "Próxima subida a Drive: En $((CLOUD_SYNC_DAYS - (DAY_OF_YEAR % CLOUD_SYNC_DAYS))) día(s)."
+    echo -e "${YELLOW}SKIP: Hoy no toca subida masiva (VMs/Data).${NC}"
+    echo "Se han subido las Configs, pero las VMs se mantienen localmente."
+    echo "Próxima subida masiva: En $((CLOUD_SYNC_DAYS - (DAY_OF_YEAR % CLOUD_SYNC_DAYS))) día(s)."
 fi
 
 # ==============================================================================
@@ -237,15 +251,17 @@ echo -e "${BLUE}============================================================${NC
 # --- NOTIFICACIÓN POR TELEGRAM ---
 if [ "$BACKUP_STATUS" == "SUCCESS" ]; then
     CLOUD_STATUS=""
-    if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
-        if [ "$CLOUD_OK" = true ]; then
-            CLOUD_STATUS="☁️ Drive: ✅ Sincronizado"
+    # Lógica de Estado de Nube
+    if [ "$CLOUD_OK" = true ]; then
+        if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
+            CLOUD_STATUS="☁️ Drive: ✅ Configs + VMs (Completo)"
         else
-            CLOUD_STATUS="☁️ Drive: ❌ Error al sincronizar"
+            NEXT_CLOUD=$((CLOUD_SYNC_DAYS - (DAY_OF_YEAR % CLOUD_SYNC_DAYS)))
+            CLOUD_STATUS="☁️ Drive: ✅ Solo Configs
+⏳ VMs: En ${NEXT_CLOUD} día(s)"
         fi
     else
-        NEXT_CLOUD=$((CLOUD_SYNC_DAYS - (DAY_OF_YEAR % CLOUD_SYNC_DAYS)))
-        CLOUD_STATUS="💾 Drive: En ${NEXT_CLOUD} día(s)"
+        CLOUD_STATUS="☁️ Drive: ❌ Fallo en subida"
     fi
 
     TELEGRAM_MSG="✅ *Backup Completado*

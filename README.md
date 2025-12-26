@@ -13,7 +13,7 @@
 | Característica         | Descripción                                       |
 | :--------------------- | :------------------------------------------------ |
 | 💾 **Backup Local**     | VZDump diario de VMs/LXC con rotación de 3 copias |
-| ☁️ **Sync a la Nube**   | Sincronización cada 3 días a Google Drive         |
+| ☁️ **Sync Híbrido**     | Configs diarias / VMs cada 3 días a Google Drive  |
 | 📱 **Notificaciones**   | Alertas por Telegram al completar o fallar        |
 | 🔐 **Secretos Seguros** | Credenciales encriptadas con age                  |
 | ⏰ **Automatizado**     | Cronjob configurable (default: 3:00 AM)           |
@@ -206,10 +206,11 @@ cd /tmp/backup-proxmox && ./install.sh
 
 ## 📊 Estrategia de Retención
 
-| Ubicación                  | Retención            | Gestión                 |
-| :------------------------- | :------------------- | :---------------------- |
-| **Local** (`/mnt/backups`) | Últimos 3 backups    | Proxmox Storage         |
-| **Google Drive**           | Solo el más reciente | Script (borra antiguos) |
+| Ubicación / Tipo    | Frecuencia      | Retención en Nube   |
+| :------------------ | :-------------- | :------------------ |
+| **Local** (Todo)    | Diario          | Últimos 3 (Proxmox) |
+| **Nube** (Configs)  | **Diario**      | Solo última versión |
+| **Nube** (VMs/Data) | **Cada 3 días** | Solo última versión |
 
 ---
 
