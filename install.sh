@@ -3,8 +3,8 @@
 # ==============================================================================
 #  INSTALADOR DE PROXMOX SMART BACKUP SYSTEM
 # ==============================================================================
-#  Uso: curl -sSL <url>/install.sh | bash
-#  O:   ./install.sh
+#  Requisito: Ejecutar primero 'dotfiles' para instalar age y rclone
+#  Uso: ./install.sh
 # ==============================================================================
 
 set -e
@@ -37,7 +37,7 @@ clear
 echo -e "${BLUE}"
 cat << "EOF"
   ╔════════════════════════════════════════════════════════════════════╗
-  ║        PROXMOX SMART BACKUP - INSTALADOR v2.0                      ║
+  ║        PROXMOX SMART BACKUP - INSTALADOR v2.1                      ║
   ╚════════════════════════════════════════════════════════════════════╝
 EOF
 echo -e "${NC}"
@@ -56,28 +56,24 @@ if ! command -v vzdump &> /dev/null; then
     log_error "vzdump no encontrado. ¿Estás en un servidor Proxmox?"
 fi
 
-# Verificar rclone
-if ! command -v rclone &> /dev/null; then
-    log_warn "rclone no está instalado. La sincronización a la nube no funcionará."
-    log_info "Instala rclone con: apt install rclone && rclone config"
+# Verificar dependencias (instaladas por dotfiles)
+if ! command -v age &> /dev/null; then
+    log_error "age no está instalado. Ejecuta primero: dotfiles → opción 6 (Paquetes)"
 fi
 
-# Verificar age (necesario para desencriptar secretos)
-if ! command -v age &> /dev/null; then
-    log_warn "age no está instalado. Es necesario para desencriptar los secretos."
-    read -p "  ¿Deseas instalar age ahora? (S/n): " INSTALL_AGE
-    
-    if [[ ! $INSTALL_AGE =~ ^[Nn]$ ]]; then
-        log_info "Instalando age..."
-        apt update && apt install -y age
-        
-        if command -v age &> /dev/null; then
-            log_success "age instalado correctamente."
-        else
-            log_error "No se pudo instalar age. Instala manualmente: apt install age"
-        fi
+if ! command -v rclone &> /dev/null; then
+    log_error "rclone no está instalado. Ejecuta primero: dotfiles → opción 6 (Paquetes)"
+fi
+
+# Verificar configuración de rclone
+if [ ! -f "/root/.config/rclone/rclone.conf" ]; then
+    log_warn "rclone no está configurado. Ejecuta: dotfiles → opción 16 (Configurar rclone)"
+    log_info "Continuando sin sincronización a la nube..."
+else
+    if rclone listremotes 2>/dev/null | grep -q "gdrive"; then
+        log_success "rclone configurado con gdrive (desde dotfiles)"
     else
-        log_warn "Sin age, deberás configurar Telegram manualmente."
+        log_warn "rclone configurado pero sin remote 'gdrive'"
     fi
 fi
 
@@ -129,18 +125,17 @@ if [ -n "$NEW_TIME" ]; then
     fi
 fi
 
-# --- Configuración desde archivo encriptado ---
+# --- Configuración desde archivo encriptado (.env.age del repo) ---
 echo ""
-echo -e "${CYAN}Cargando secretos encriptados...${NC}"
+echo -e "${CYAN}Cargando secretos de Telegram...${NC}"
 
 TELEGRAM_TOKEN=""
 TELEGRAM_CHAT_ID=""
-RCLONE_TOKEN=""
 SCRIPT_DIR="$(dirname "$0")"
 ENCRYPTED_FILE="$SCRIPT_DIR/.env.age"
 LOCAL_CONFIG="$SCRIPT_DIR/.env"
 
-# Prioridad: 1) Config existente en servidor, 2) Archivo .age, 3) Manual
+# Prioridad: 1) Config existente en servidor, 2) Archivo .age del repo, 3) Manual
 if [ -f "$CONFIG_FILE" ]; then
     source "$CONFIG_FILE"
     if [ -n "$TELEGRAM_TOKEN" ]; then
@@ -150,20 +145,15 @@ if [ -f "$CONFIG_FILE" ]; then
     fi
 
 elif [ -f "$ENCRYPTED_FILE" ]; then
-    log_info "Archivo encriptado encontrado: config.env.age"
+    log_info "Archivo encriptado encontrado: .env.age"
+    log_info "Desencriptando con age..."
     
-    if command -v age &> /dev/null; then
-        log_info "Desencriptando con age..."
-        
-        if age -d -o "$LOCAL_CONFIG" "$ENCRYPTED_FILE" 2>/dev/null; then
-            source "$LOCAL_CONFIG"
-            rm -f "$LOCAL_CONFIG"  # Limpiar archivo temporal
-            log_success "Secretos cargados correctamente."
-        else
-            log_warn "No se pudo desencriptar. ¿Tienes la clave privada en ~/.config/age/keys.txt?"
-        fi
+    if age -d -o "$LOCAL_CONFIG" "$ENCRYPTED_FILE" 2>/dev/null; then
+        source "$LOCAL_CONFIG"
+        rm -f "$LOCAL_CONFIG"  # Limpiar archivo temporal
+        log_success "Secretos de Telegram cargados correctamente."
     else
-        log_warn "age no instalado. Instala con: apt install age"
+        log_warn "No se pudo desencriptar. Verifica la passphrase."
     fi
 
 else
@@ -201,7 +191,7 @@ mkdir -p "$LOG_DIR"
 mkdir -p "$CONFIG_DIR"
 log_success "Directorios creados: $LOG_DIR, $CONFIG_DIR"
 
-# Guardar configuración
+# Guardar configuración de Telegram
 cat > "$CONFIG_FILE" << EOF
 # Proxmox Smart Backup - Configuración
 # Generado: $(date)
@@ -213,36 +203,6 @@ EOF
 
 chmod 600 "$CONFIG_FILE"
 log_success "Configuración guardada: $CONFIG_FILE"
-
-# --- CONFIGURAR RCLONE ---
-if [ -n "$RCLONE_TOKEN" ]; then
-    log_info "Configurando rclone para Google Drive..."
-    
-    RCLONE_CONFIG_DIR="/root/.config/rclone"
-    RCLONE_CONFIG_FILE="$RCLONE_CONFIG_DIR/rclone.conf"
-    
-    mkdir -p "$RCLONE_CONFIG_DIR"
-    
-    # Usar printf para preservar las comillas del JSON
-    printf '%s\n' "[gdrive]" \
-        "type = drive" \
-        "scope = drive" \
-        "token = ${RCLONE_TOKEN}" \
-        "team_drive = " > "$RCLONE_CONFIG_FILE"
-
-    chmod 600 "$RCLONE_CONFIG_FILE"
-    log_success "rclone.conf generado: $RCLONE_CONFIG_FILE"
-    
-    # Verificar conexión
-    log_info "Verificando conexión a Google Drive..."
-    if rclone lsd gdrive: --max-depth 1 &>/dev/null; then
-        log_success "Conexión a Google Drive verificada."
-    else
-        log_warn "No se pudo verificar la conexión. Revisa el token."
-    fi
-else
-    log_warn "RCLONE_TOKEN no encontrado. Configura rclone manualmente: rclone config"
-fi
 
 # Copiar script
 SCRIPT_SOURCE="$(dirname "$0")/$SCRIPT_NAME"
@@ -333,6 +293,7 @@ echo -e "  ${BLUE}Config:${NC}       $CONFIG_FILE"
 echo -e "  ${BLUE}Logs:${NC}         $LOG_DIR/"
 echo -e "  ${BLUE}Cronjob:${NC}      Diario a las $CURRENT_HOUR:$(printf '%02d' $CURRENT_MIN)"
 echo -e "  ${BLUE}Telegram:${NC}     $([ -n "$TELEGRAM_TOKEN" ] && echo "✔ Habilitado" || echo "✖ Deshabilitado")"
+echo -e "  ${BLUE}rclone:${NC}       $(rclone listremotes 2>/dev/null | grep -q gdrive && echo "✔ gdrive configurado" || echo "✖ No configurado")"
 echo ""
 echo -e "  ${YELLOW}Comandos útiles:${NC}"
 echo -e "    • Ejecutar ahora:        ${GREEN}$SCRIPT_PATH${NC}"

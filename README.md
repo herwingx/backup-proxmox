@@ -26,34 +26,41 @@
 ### Requisitos
 
 - Proxmox VE 7.x o superior
-- `rclone` (se ofrece instalar automáticamente)
-- `age` (se ofrece instalar automáticamente)
+- **[dotfiles](https://github.com/herwingx/dotfiles)** ejecutado previamente (instala `age`, `rclone` y configura Google Drive)
 
-### 1. Clonar el repositorio
+### 1. Preparar el servidor (dotfiles)
+
+```bash
+# En el servidor Proxmox, primero ejecutar dotfiles
+git clone https://github.com/herwingx/dotfiles.git
+cd dotfiles
+./install.sh
+# Seleccionar opción 6 (Paquetes) → instala age y rclone
+# Seleccionar opción 16 (Configurar rclone) → configura Google Drive
+```
+
+### 2. Clonar este repositorio
 
 ```bash
 git clone https://github.com/herwingx/backup-proxmox.git
 cd backup-proxmox
 ```
 
-### 2. Configurar secretos
+### 3. Configurar secretos de Telegram
 
 ```bash
 # Copiar plantilla
 cp .env.example .env
 
-# Editar con tus credenciales
+# Editar con tus credenciales de Telegram
 nano .env
 ```
 
 Variables a configurar (`.env`):
 ```env
-# Telegram
+# Telegram (solo se necesitan estas, rclone viene de dotfiles)
 TELEGRAM_TOKEN="tu_token_de_botfather"
 TELEGRAM_CHAT_ID="tu_chat_id"
-
-# Google Drive (obtener con: rclone authorize "drive")
-RCLONE_TOKEN='{"access_token":"...","refresh_token":"..."}'
 ```
 
 ```bash
@@ -62,22 +69,16 @@ RCLONE_TOKEN='{"access_token":"...","refresh_token":"..."}'
 # Ingresa tu passphrase (recuérdala para la instalación)
 ```
 
-### 3. Instalar en Proxmox
+### 4. Instalar
 
 ```bash
-# Copiar al servidor
-scp -r . root@pve:/tmp/backup-proxmox/
-
-# Conectar e instalar
-ssh root@pve
-cd /tmp/backup-proxmox
 ./install.sh
 ```
 
 El instalador:
-- ✅ Verifica dependencias (rclone, age)
-- ✅ Desencripta los secretos automáticamente
-- ✅ Configura rclone para Google Drive
+- ✅ Verifica que `age` y `rclone` estén instalados (desde dotfiles)
+- ✅ Verifica que `rclone` tenga configurado `gdrive` (desde dotfiles)
+- ✅ Desencripta los secretos de Telegram del repo
 - ✅ Instala el script en `/usr/local/bin/`
 - ✅ Configura el cronjob
 - ✅ Envía notificación de prueba a Telegram
