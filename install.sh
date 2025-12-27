@@ -11,8 +11,8 @@ set -e
 
 # --- CONFIGURACIÓN POR DEFECTO ---
 INSTALL_DIR="/usr/local/bin"
-SCRIPT_NAME="backups-vms.sh"
-SCRIPT_PATH="$INSTALL_DIR/$SCRIPT_NAME"
+SCRIPT_NAME="backup.sh"
+SCRIPT_PATH="$INSTALL_DIR/proxmox-backup"
 CONFIG_DIR="/etc/proxmox-backup"
 CONFIG_FILE="$CONFIG_DIR/config.env"
 LOG_DIR="/var/log/proxmox-backup"
@@ -204,15 +204,15 @@ EOF
 chmod 600 "$CONFIG_FILE"
 log_success "Configuración guardada: $CONFIG_FILE"
 
-# Copiar script
-SCRIPT_SOURCE="$(dirname "$0")/$SCRIPT_NAME"
+# Copiar script de backup
+SCRIPT_SOURCE="$(dirname "$0")/scripts/$SCRIPT_NAME"
 
 if [ -f "$SCRIPT_SOURCE" ]; then
     cp "$SCRIPT_SOURCE" "$SCRIPT_PATH"
     chmod +x "$SCRIPT_PATH"
     log_success "Script instalado: $SCRIPT_PATH"
 else
-    log_error "No se encontró $SCRIPT_NAME en el directorio actual."
+    log_error "No se encontró scripts/$SCRIPT_NAME"
 fi
 
 # ==============================================================================

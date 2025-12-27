@@ -65,7 +65,7 @@ TELEGRAM_CHAT_ID="tu_chat_id"
 
 ```bash
 # Encriptar secretos
-./manage_secrets.sh encrypt
+./scripts/manage_secrets.sh encrypt
 # Ingresa tu passphrase (recuérdala para la instalación)
 ```
 
@@ -117,23 +117,24 @@ El instalador:
 
 ```
 backup-proxmox/
-├── .env.age            # 🔐 Secretos encriptados (seguro para Git)
-├── .env.example        # 📄 Plantilla de configuración
+├── .env.age              # 🔐 Secretos encriptados (seguro para Git)
+├── .env.example          # 📄 Plantilla de configuración
 ├── .gitignore
-├── backups-vms.sh      # 📦 Script principal de backup
-├── install.sh          # 🚀 Instalador automático
-├── manage_secrets.sh   # 🔑 Gestión de secretos con age
+├── install.sh            # 🚀 Instalador automático
 ├── README.md
+├── scripts/
+│   ├── backup.sh         # 📦 Script principal de backup
+│   └── manage_secrets.sh # 🔑 Gestión de secretos con age
 └── docs/
 ```
 
 ### Archivos en el servidor (post-instalación)
 
 ```
-/usr/local/bin/backups-vms.sh     # Script de backup
-/etc/proxmox-backup/config.env    # Configuración (permisos 600)
-/root/.config/rclone/rclone.conf  # Config de rclone
-/var/log/proxmox-backup/          # Logs diarios
+/usr/local/bin/proxmox-backup        # Script de backup
+/etc/proxmox-backup/config.env       # Configuración (permisos 600)
+/root/.config/rclone/rclone.conf     # Config de rclone (desde dotfiles)
+/var/log/proxmox-backup/             # Logs diarios
 ```
 
 ---
@@ -142,11 +143,11 @@ backup-proxmox/
 
 Los secretos se encriptan con [age](https://github.com/FiloSottile/age) usando passphrase:
 
-| Comando                       | Descripción                     |
-| :---------------------------- | :------------------------------ |
-| `./manage_secrets.sh encrypt` | Encripta `.env` → `.env.age`    |
-| `./manage_secrets.sh decrypt` | Desencripta `.env.age` → `.env` |
-| `./manage_secrets.sh edit`    | Edita y re-encripta             |
+| Comando                               | Descripción                     |
+| :------------------------------------ | :------------------------------ |
+| `./scripts/manage_secrets.sh encrypt` | Encripta `.env` → `.env.age`    |
+| `./scripts/manage_secrets.sh decrypt` | Desencripta `.env.age` → `.env` |
+| `./scripts/manage_secrets.sh edit`    | Edita y re-encripta             |
 
 ---
 
@@ -188,7 +189,9 @@ Pega ese JSON en tu `.env` como `RCLONE_TOKEN`.
 
 ```bash
 # Ejecutar backup manualmente
-/usr/local/bin/backups-vms.sh
+proxmox-backup
+# o con ruta completa:
+/usr/local/bin/proxmox-backup
 
 # Ver cronjobs
 crontab -l
@@ -200,7 +203,7 @@ tail -f /var/log/proxmox-backup/backup-$(date +%F).log
 nano /etc/proxmox-backup/config.env
 
 # Reinstalar (actualiza scripts y hora)
-cd /tmp/backup-proxmox && ./install.sh
+./install.sh
 ```
 
 ---
