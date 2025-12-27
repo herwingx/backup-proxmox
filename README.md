@@ -26,58 +26,59 @@
 ### Requisitos
 
 - Proxmox VE 7.x o superior
-- `rclone` (se ofrece instalar automáticamente)
-- `age` (se ofrece instalar automáticamente)
+- **[dotfiles](https://github.com/herwingx/dotfiles)** ejecutado previamente (instala `age`, `rclone` y configura Google Drive)
 
-### 1. Clonar el repositorio
+### 1. Preparar el servidor (dotfiles)
+
+```bash
+# En el servidor Proxmox, primero ejecutar dotfiles
+git clone https://github.com/herwingx/dotfiles.git
+cd dotfiles
+./install.sh
+# Seleccionar opción 6 (Paquetes) → instala age y rclone
+# Seleccionar opción 16 (Configurar rclone) → configura Google Drive
+```
+
+### 2. Clonar este repositorio
 
 ```bash
 git clone https://github.com/herwingx/backup-proxmox.git
 cd backup-proxmox
 ```
 
-### 2. Configurar secretos
+### 3. Configurar secretos de Telegram
 
 ```bash
 # Copiar plantilla
 cp .env.example .env
 
-# Editar con tus credenciales
+# Editar con tus credenciales de Telegram
 nano .env
 ```
 
 Variables a configurar (`.env`):
 ```env
-# Telegram
+# Telegram (solo se necesitan estas, rclone viene de dotfiles)
 TELEGRAM_TOKEN="tu_token_de_botfather"
 TELEGRAM_CHAT_ID="tu_chat_id"
-
-# Google Drive (obtener con: rclone authorize "drive")
-RCLONE_TOKEN='{"access_token":"...","refresh_token":"..."}'
 ```
 
 ```bash
 # Encriptar secretos
-./manage_secrets.sh encrypt
+./scripts/manage_secrets.sh encrypt
 # Ingresa tu passphrase (recuérdala para la instalación)
 ```
 
-### 3. Instalar en Proxmox
+### 4. Instalar
 
 ```bash
-# Copiar al servidor
-scp -r . root@pve:/tmp/backup-proxmox/
-
-# Conectar e instalar
-ssh root@pve
-cd /tmp/backup-proxmox
 ./install.sh
 ```
 
 El instalador:
-- ✅ Verifica dependencias (rclone, age)
-- ✅ Desencripta los secretos automáticamente
-- ✅ Configura rclone para Google Drive
+- ✅ Verifica que `age` y `rclone` estén instalados (desde dotfiles)
+- ✅ Verifica que `rclone` tenga configurado `gdrive` (desde dotfiles)
+- ✅ Desencripta los secretos de Telegram del repo
 - ✅ Instala el script en `/usr/local/bin/`
 - ✅ Configura el cronjob
 - ✅ Envía notificación de prueba a Telegram
@@ -116,23 +117,24 @@ El instalador:
 
 ```
 backup-proxmox/
-├── .env.age            # 🔐 Secretos encriptados (seguro para Git)
-├── .env.example        # 📄 Plantilla de configuración
+├── .env.age              # 🔐 Secretos encriptados (seguro para Git)
+├── .env.example          # 📄 Plantilla de configuración
 ├── .gitignore
-├── backups-vms.sh      # 📦 Script principal de backup
-├── install.sh          # 🚀 Instalador automático
-├── manage_secrets.sh   # 🔑 Gestión de secretos con age
+├── install.sh            # 🚀 Instalador automático
 ├── README.md
+├── scripts/
+│   ├── backup.sh         # 📦 Script principal de backup
+│   └── manage_secrets.sh # 🔑 Gestión de secretos con age
 └── docs/
 ```
 
 ### Archivos en el servidor (post-instalación)
 
 ```
-/usr/local/bin/backups-vms.sh     # Script de backup
-/etc/proxmox-backup/config.env    # Configuración (permisos 600)
-/root/.config/rclone/rclone.conf  # Config de rclone
-/var/log/proxmox-backup/          # Logs diarios
+/usr/local/bin/proxmox-backup        # Script de backup
+/etc/proxmox-backup/config.env       # Configuración (permisos 600)
+/root/.config/rclone/rclone.conf     # Config de rclone (desde dotfiles)
+/var/log/proxmox-backup/             # Logs diarios
 ```
 
 ---
@@ -141,11 +143,11 @@ backup-proxmox/
 
 Los secretos se encriptan con [age](https://github.com/FiloSottile/age) usando passphrase:
 
-| Comando                       | Descripción                     |
-| :---------------------------- | :------------------------------ |
-| `./manage_secrets.sh encrypt` | Encripta `.env` → `.env.age`    |
-| `./manage_secrets.sh decrypt` | Desencripta `.env.age` → `.env` |
-| `./manage_secrets.sh edit`    | Edita y re-encripta             |
+| Comando                               | Descripción                     |
+| :------------------------------------ | :------------------------------ |
+| `./scripts/manage_secrets.sh encrypt` | Encripta `.env` → `.env.age`    |
+| `./scripts/manage_secrets.sh decrypt` | Desencripta `.env.age` → `.env` |
+| `./scripts/manage_secrets.sh edit`    | Edita y re-encripta             |
 
 ---
 
@@ -187,7 +189,9 @@ Pega ese JSON en tu `.env` como `RCLONE_TOKEN`.
 
 ```bash
 # Ejecutar backup manualmente
-/usr/local/bin/backups-vms.sh
+proxmox-backup
+# o con ruta completa:
+/usr/local/bin/proxmox-backup
 
 # Ver cronjobs
 crontab -l
@@ -199,7 +203,7 @@ tail -f /var/log/proxmox-backup/backup-$(date +%F).log
 nano /etc/proxmox-backup/config.env
 
 # Reinstalar (actualiza scripts y hora)
-cd /tmp/backup-proxmox && ./install.sh
+./install.sh
 ```
 
 ---
