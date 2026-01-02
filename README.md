@@ -87,14 +87,19 @@ El asistente verificará:
 El sistema sigue un flujo de respaldo híbrido priorizando la velocidad local y la seguridad en la nube.
 
 ```mermaid
-graph TD
+flowchart TD
+    %% Defines Styles
+    classDef server fill:#f9f9f9,stroke:#333,stroke-width:2px;
+    classDef cloud fill:#e1f5fe,stroke:#0277bd,stroke-width:2px;
+    classDef storage fill:#fff3e0,stroke:#ef6c00,stroke-width:2px;
+    classDef bot fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,stroke-dasharray: 5 5;
+
     subgraph Proxmox_Server [🖥️ Proxmox VE Server]
-        style Proxmox_Server fill:#f9f9f9,stroke:#333,stroke-width:2px
-        
-        VMs[📦 VMs & LXC]
-        VZDump[⚙️ VZDump Tool]
-        LocalStore[📂 /mnt/backups/dump]
-        Script[📜 Smart Backup Script]
+        direction TB
+        VMs[📦 VMs & LXC]:::server
+        VZDump[⚙️ VZDump Tool]:::server
+        LocalStore[📂 /mnt/backups/dump]:::storage
+        Script[📜 Smart Backup Script]:::server
         
         VMs -->|Snapshot Diario| VZDump
         VZDump -->|Genera .zst| LocalStore
@@ -102,23 +107,25 @@ graph TD
     end
 
     subgraph Cloud [☁️ Nube]
-        style Cloud fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
-        GDrive[Google Drive]
+        GDrive[Google Drive]:::cloud
     end
 
-    LocalStore -->|Sync Encriptado (rclone)| GDrive
-    Script -->|Notificación| Telegram[📱 Telegram Bot]
+    Telegram[📱 Telegram Bot]:::bot
 
-    Note[📝 Estrategia de Subida:\n- Configs: Diario\n- VMs: Cada 3 Días]
-    Script -.-> Note
+    LocalStore -->|"Sync Encriptado (rclone)"| GDrive
+    Script -->|Notificación| Telegram
+
+    Note[📝 Estrategia de Subida:<br/>- Configs: Diario<br/>- VMs: Cada 3 Días]
+    Script -.- Note
 ```
 
-### � Flujo de Ejecución
+### 🔄 Flujo de Ejecución
 
 Detalle del proceso paso a paso ejecutado por el cronjob.
 
 ```mermaid
 sequenceDiagram
+    autonumber
     participant Cron as ⏰ Cronjob
     participant Script as 📜 Backup Script
     participant PVE as 🖥️ Proxmox VE
