@@ -22,7 +22,7 @@ GDRIVE_SYSTEM="Proxmox System"
 GDRIVE_DATA="Proxmox Data"
 
 # --- [3] CONFIGURACIÓN DE FRECUENCIA ---
-CLOUD_SYNC_DAYS=3 
+CLOUD_SYNC_DAYS=7  # Subida semanal a Drive 
 
 # --- [4] CONFIGURACIÓN DE TELEGRAM ---
 CONFIG_FILE="/etc/proxmox-backup/config.env"
