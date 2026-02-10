@@ -91,14 +91,65 @@ cat << "EOF"
   ║  |_|   |_| \_\\___/_/\_\_|  |_|\___/_/\_\  |____/ \__,_|\___|___/  ║
   ║                                                                    ║
 EOF
-echo -e "  ║              ${GREEN}★ SMART BACKUP SYSTEM v2.0 ★${BLUE}                      ║"
+echo -e "  ║              ${GREEN}★ SMART BACKUP SYSTEM v2.1 ★${BLUE}                      ║"
 cat << "EOF"
   ╚════════════════════════════════════════════════════════════════════╝
 EOF
 echo -e "${NC}"
 echo "Iniciando Protocolo de Respaldo para: $HOST_NAME"
 echo "Fecha: $DATE | Día del año: $DAY_OF_YEAR"
-echo "Estrategia Nube: Subir CADA $CLOUD_SYNC_DAYS DÍAS y mantener SOLO EL ÚLTIMO."
+echo "Estrategia Nube: Subir CADA $CLOUD_SYNC_DAYS DÍAS y mantener SOLO EL ÚLTIMO.
+
+# --- [0] VERIFICACIÓN DE ESTADO ---
+check_storage() {
+    log_header "[0/5] Verificación de Almacenamiento"
+    
+    local MOUNT_ERROR=false
+    
+    # 1. Verificación básica de directorio
+    if [ ! -d "$BACKUP_DIR" ]; then
+        log_error "Directorio no encontrado: $BACKUP_DIR"
+        MOUNT_ERROR=true
+    else
+        # 2. Test de escritura (Detecta Read-only FS o I/O Errors)
+        if ! touch "$BACKUP_DIR/.write_test" 2>/dev/null; then
+            log_error "Fallo de escritura en $BACKUP_DIR (Posible I/O Error o Read-only)"
+            MOUNT_ERROR=true
+        else
+            rm -f "$BACKUP_DIR/.write_test"
+            log_success "Acceso a disco local OK."
+        fi
+    fi
+
+    # 3. Verificación de Storage Proxmox
+    if command -v pvesm &> /dev/null; then
+        if ! pvesm status --storage "$PROXMOX_STORAGE_ID" | grep -q "active"; then
+            log_error "Storage Proxmox '$PROXMOX_STORAGE_ID' ESTÁ INACTIVO o DESCONECTADO."
+            MOUNT_ERROR=true
+        else
+            log_success "Storage Proxmox '$PROXMOX_STORAGE_ID' activo."
+        fi
+    fi
+
+    if [ "$MOUNT_ERROR" = true ]; then
+        log_error "ABORTANDO: El sistema de almacenamiento no es confiable."
+        
+        # Intentar diagnóstico rápido
+        echo -e "\n${YELLOW}--- DIAGNÓSTICO RÁPIDO ---${NC}"
+        df -h "$BACKUP_DIR" 2>/dev/null || echo "No se puede leer info de disco."
+        dmesg | tail -n 5 2>/dev/null || true
+        
+        send_telegram "🚨 *FALLO CRÍTICO DE DISCO*
+El sistema de backup en \`$HOST_NAME\` no puede acceder al disco.
+Error: Read-only filesytem o I/O Error.
+Revisar urgentemente."
+        
+        exit 1
+    fi
+}
+
+# Ejecutar verificación antes de nada
+check_storage"
 
 # ------------------------------------------------------------------------------
 # FASE 1: BACKUP LOCAL (SIEMPRE SE EJECUTA)
