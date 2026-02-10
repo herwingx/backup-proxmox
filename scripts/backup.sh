@@ -149,7 +149,7 @@ Revisar urgentemente."
 }
 
 # Ejecutar verificación antes de nada
-check_storage"
+check_storage
 
 # ------------------------------------------------------------------------------
 # FASE 1: BACKUP LOCAL (SIEMPRE SE EJECUTA)
