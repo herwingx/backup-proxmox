@@ -98,7 +98,7 @@ EOF
 echo -e "${NC}"
 echo "Iniciando Protocolo de Respaldo para: $HOST_NAME"
 echo "Fecha: $DATE | Día del año: $DAY_OF_YEAR"
-echo "Estrategia Nube: Subir CADA $CLOUD_SYNC_DAYS DÍAS y mantener SOLO EL ÚLTIMO.
+echo "Estrategia Nube: Subir CADA $CLOUD_SYNC_DAYS DÍAS y mantener SOLO EL ÚLTIMO."
 
 # --- [0] VERIFICACIÓN DE ESTADO ---
 check_storage() {
