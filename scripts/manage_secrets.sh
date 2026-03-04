@@ -71,7 +71,7 @@ decrypt_secrets() {
     log_info "Desencriptando $ENCRYPTED_FILE..."
     log_info "Necesitas tu clave privada de age (~/.config/age/keys.txt)"
     
-    age -d -o "$SECRET_FILE" "$ENCRYPTED_FILE"
+    (umask 077; age -d -o "$SECRET_FILE" "$ENCRYPTED_FILE")
     chmod 600 "$SECRET_FILE"
     
     log_success "Archivo desencriptado: $SECRET_FILE"
