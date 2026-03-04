@@ -148,7 +148,7 @@ elif [ -f "$ENCRYPTED_FILE" ]; then
     log_info "Archivo encriptado encontrado: .env.age"
     log_info "Desencriptando con age..."
     
-    if age -d -o "$LOCAL_CONFIG" "$ENCRYPTED_FILE" 2>/dev/null; then
+    if (umask 077 && age -d -o "$LOCAL_CONFIG" "$ENCRYPTED_FILE" 2>/dev/null); then
         source "$LOCAL_CONFIG"
         rm -f "$LOCAL_CONFIG"  # Limpiar archivo temporal
         log_success "Secretos de Telegram cargados correctamente."
