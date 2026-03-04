@@ -197,8 +197,8 @@ cat > "$CONFIG_FILE" << EOF
 # Generado: $(date)
 
 # Telegram Notifications
-TELEGRAM_TOKEN="$TELEGRAM_TOKEN"
-TELEGRAM_CHAT_ID="$TELEGRAM_CHAT_ID"
+TELEGRAM_TOKEN=$(printf '%q' "$TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID=$(printf '%q' "$TELEGRAM_CHAT_ID")
 EOF
 
 chmod 600 "$CONFIG_FILE"
