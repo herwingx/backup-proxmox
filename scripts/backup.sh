@@ -199,9 +199,11 @@ log_header "[3/5] Respaldo de Configs a Nube (Diario)"
 
 # 2.1 SUBIR CONFIGS
 log_info "Destino: $GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs"
+COPY_CONFIGS_OK=false
 if rclone copy "$CONFIG_DEST/host-config-$HOST_NAME-$DATE.tar.gz" \
     "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs" 2>&1; then
     log_success "Configs subidas a Drive."
+    COPY_CONFIGS_OK=true
 else
     log_error "Error al subir configs a Drive."
     CLOUD_OK=false
@@ -209,14 +211,19 @@ fi
 
 # 2.2 LIMPIEZA DE CONFIGS ANTIGUAS
 log_step "Mantenimiento: Dejando solo la versión más reciente..."
-rclone delete "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs" \
-    --min-age 1d \
-    --include "*.tar.gz" 2>&1
+if [ "$COPY_CONFIGS_OK" = true ]; then
+    rclone delete "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs" \
+        --min-age 1d \
+        --include "*.tar.gz" \
+        --fast-list 2>&1
 
-if [ $? -eq 0 ]; then
-    log_success "Configs antiguas eliminadas."
+    if [ $? -eq 0 ]; then
+        log_success "Configs antiguas eliminadas."
+    else
+        log_error "Error al limpiar configs antiguas."
+    fi
 else
-    log_error "Error al limpiar configs antiguas."
+    log_info "Omitiendo limpieza de configs antiguas por fallo en subida."
 fi
 
 
@@ -236,12 +243,14 @@ if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
     log_step "Subiendo backups de VMs hoy ($PVE_DATE)..."
     
     # Subir Dumps
+    COPY_VMS_OK=false
     if rclone copy "$BACKUP_DIR/dump" "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM" \
         --transfers=4 \
         --progress \
         --include "*$PVE_DATE*" \
         --include "*.log" 2>&1; then
         log_success "Backups de VMs subidos a Drive."
+        COPY_VMS_OK=true
     else
         log_error "Error al subir backups a Drive."
         CLOUD_OK=false
@@ -251,15 +260,20 @@ if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
     log_header "LIMPIEZA DE VMS ANTIGUAS"
     log_step "Eliminando versiones antiguas en Drive..."
     
-    rclone delete "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM" \
-        --min-age 1d \
-        --include "*.zst" \
-        --include "*.log" \
-        --include "*.vma.zst" \
-        --include "*.tar.zst" \
-        --verbose
+    if [ "$COPY_VMS_OK" = true ]; then
+        rclone delete "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM" \
+            --min-age 1d \
+            --include "*.zst" \
+            --include "*.log" \
+            --include "*.vma.zst" \
+            --include "*.tar.zst" \
+            --fast-list \
+            --verbose
 
-    log_success "Historial de VMs limpiado (Solo queda el de hoy)."
+        log_success "Historial de VMs limpiado (Solo queda el de hoy)."
+    else
+        log_info "Omitiendo limpieza de VMs antiguas por fallo en subida."
+    fi
 
     # ---------------------------------------------------------
     # 3.2 SUBIR DATOS
