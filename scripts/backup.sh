@@ -195,10 +195,11 @@ log_header "[1/5] Respaldo de Configuración del Host (Local)"
 
 CONFIG_DEST="$BACKUP_DIR/host-configs"
 mkdir -p "$CONFIG_DEST"
+chmod 700 "$CONFIG_DEST"
 FILES_TO_BACKUP="/etc/pve /etc/network/interfaces /etc/hosts /etc/fstab /etc/vzdump.conf /etc/samba/smb.conf /root/.ssh /root/.bashrc"
 
 log_step "Comprimiendo archivos críticos..."
-tar -czf "$CONFIG_DEST/host-config-$HOST_NAME-$DATE.tar.gz" $FILES_TO_BACKUP --warning=no-file-changed 2>/dev/null
+(umask 077 && tar -czf "$CONFIG_DEST/host-config-$HOST_NAME-$DATE.tar.gz" $FILES_TO_BACKUP --warning=no-file-changed 2>/dev/null)
 
 if [ $? -eq 0 ]; then
     log_success "Configs guardadas: host-config-$HOST_NAME-$DATE.tar.gz"
