@@ -99,23 +99,29 @@ edit_secrets() {
 #  MAIN
 # ==============================================================================
 
-case "${1:-}" in
-    encrypt)
-        encrypt_secrets
-        ;;
-    decrypt)
-        decrypt_secrets
-        ;;
-    edit)
-        edit_secrets
-        ;;
-    *)
-        echo "Uso: $0 {encrypt|decrypt|edit}"
-        echo ""
-        echo "Comandos:"
-        echo "  encrypt  - Encripta config.env → config.env.age"
-        echo "  decrypt  - Desencripta config.env.age → config.env"
-        echo "  edit     - Edita y re-encripta los secretos"
-        exit 1
-        ;;
-esac
+main() {
+    case "${1:-}" in
+        encrypt)
+            encrypt_secrets
+            ;;
+        decrypt)
+            decrypt_secrets
+            ;;
+        edit)
+            edit_secrets
+            ;;
+        *)
+            echo "Uso: $0 {encrypt|decrypt|edit}"
+            echo ""
+            echo "Comandos:"
+            echo "  encrypt  - Encripta config.env → config.env.age"
+            echo "  decrypt  - Desencripta config.env.age → config.env"
+            echo "  edit     - Edita y re-encripta los secretos"
+            exit 1
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
