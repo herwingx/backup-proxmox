@@ -193,6 +193,8 @@ mkdir -p "$CONFIG_DIR"
 log_success "Directorios creados: $LOG_DIR, $CONFIG_DIR"
 
 # Guardar configuración de Telegram
+touch "$CONFIG_FILE"
+chmod 600 "$CONFIG_FILE"
 cat > "$CONFIG_FILE" << EOF
 # Proxmox Smart Backup - Configuración
 # Generado: $(date)
@@ -201,8 +203,6 @@ cat > "$CONFIG_FILE" << EOF
 TELEGRAM_TOKEN=$(printf '%q' "$TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID=$(printf '%q' "$TELEGRAM_CHAT_ID")
 EOF
-
-chmod 600 "$CONFIG_FILE"
 log_success "Configuración guardada: $CONFIG_FILE"
 
 # Copiar script de backup
