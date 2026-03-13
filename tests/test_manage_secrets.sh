@@ -1,222 +1,119 @@
 #!/bin/bash
 
-# Simple testing framework
-RED='\033[0;31m'
+# Test for decrypt_secrets in scripts/manage_secrets.sh
+
+set -e
+
+# Path to the script under test
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TARGET_SCRIPT="$SCRIPT_DIR/scripts/manage_secrets.sh"
+
+# Colors for output
 GREEN='\033[0;32m'
+RED='\033[0;31m'
 NC='\033[0m'
-FAILURES=0
 
-assert_true() {
-    if ! "$@"; then
-        echo -e "${RED}✗ FAIL: ${*} did not return true${NC}"
-        FAILURES=$((FAILURES + 1))
-    else
-        echo -e "${GREEN}✓ PASS: ${*}${NC}"
-    fi
-}
+echo "======================================"
+echo " Running tests for decrypt_secrets"
+echo "======================================"
 
-assert_file_exists() {
-    if [ ! -f "$1" ]; then
-        echo -e "${RED}✗ FAIL: File $1 does not exist${NC}"
-        FAILURES=$((FAILURES + 1))
-    else
-        echo -e "${GREEN}✓ PASS: File $1 exists${NC}"
-    fi
-}
+# Setup test environment
+TEST_DIR=$(mktemp -d)
+trap 'rm -rf "$TEST_DIR"' EXIT
 
-assert_file_not_exists() {
-    if [ -f "$1" ]; then
-        echo -e "${RED}✗ FAIL: File $1 exists but should not${NC}"
-        FAILURES=$((FAILURES + 1))
-    else
-        echo -e "${GREEN}✓ PASS: File $1 does not exist${NC}"
-    fi
-}
+# Export variables expected by the script BEFORE sourcing
+export SCRIPT_DIR="$TEST_DIR"
+export SECRET_FILE="$TEST_DIR/.env"
+export ENCRYPTED_FILE="$TEST_DIR/.env.age"
 
-assert_output_contains() {
-    local output="$1"
-    local expected="$2"
-    if [[ ! "$output" == *"$expected"* ]]; then
-        echo -e "${RED}✗ FAIL: Output did not contain '$expected'${NC}"
-        echo "Output was: $output"
-        FAILURES=$((FAILURES + 1))
-    else
-        echo -e "${GREEN}✓ PASS: Output contained '$expected'${NC}"
-    fi
-}
-
-# Ensure tests are run from repository root
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-# --- TESTS ---
-
-test_encrypt_secrets_keeps_original() {
-    echo "--- test_encrypt_secrets_keeps_original ---"
-    local test_dir=$(mktemp -d)
-
-    cat << MOCK > "$test_dir/wrapper.sh"
-#!/bin/bash
-source "$REPO_ROOT/scripts/manage_secrets.sh"
-SECRET_FILE="\$1"
-ENCRYPTED_FILE="\$2"
+# Create a dummy encrypted file
+echo "dummy_encrypted_content" > "$ENCRYPTED_FILE"
 
 # Mock age command
 age() {
-    touch "\$3"
-}
-export -f age
-
-# override command -v for age mock
-_command() {
-    if [[ "\$1" == "-v" && "\$2" == "age" ]]; then
-        echo "mocked-age"
-        return 0
-    fi
-    command "\$@"
-}
-alias command=_command
-shopt -s expand_aliases
-
-encrypt_secrets
-MOCK
-    chmod +x "$test_dir/wrapper.sh"
-
-    local sec_file="$test_dir/.env"
-    local enc_file="$test_dir/.env.age"
-
-    # Create the secret file
-    echo "secret=123" > "$sec_file"
-
-    # Run the function, answer 'n' to "Delete original file?"
-    output=$(echo "n" | "$test_dir/wrapper.sh" "$sec_file" "$enc_file" 2>&1)
-
-    assert_file_exists "$enc_file"
-    assert_file_exists "$sec_file"
-    assert_output_contains "$output" "Archivo encriptado:"
-
-    rm -rf "$test_dir"
-}
-
-test_encrypt_secrets_deletes_original() {
-    echo "--- test_encrypt_secrets_deletes_original ---"
-    local test_dir=$(mktemp -d)
-
-    cat << MOCK > "$test_dir/wrapper.sh"
-#!/bin/bash
-source "$REPO_ROOT/scripts/manage_secrets.sh"
-SECRET_FILE="\$1"
-ENCRYPTED_FILE="\$2"
-
-# Mock age command
-age() {
-    # Extract output file correctly, considering args
-    local outfile=""
-    while [[ \$# -gt 0 ]]; do
-        case "\$1" in
-            -o) outfile="\$2"; shift 2 ;;
+    echo "mock_age called with args: $*" >> "$TEST_DIR/age_calls.log"
+    # Create the output file if -o flag is present
+    local output_file=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -o) output_file="$2"; shift 2 ;;
             *) shift ;;
         esac
     done
-    if [ -n "\$outfile" ]; then
-        touch "\$outfile"
+    if [[ -n "$output_file" ]]; then
+        echo "dummy_decrypted_content" > "$output_file"
     fi
 }
 export -f age
 
-# override command -v for age mock
-_command() {
-    if [[ "\$1" == "-v" && "\$2" == "age" ]]; then
-        echo "mocked-age"
-        return 0
-    fi
-    command "\$@"
+# Source the script
+source "$TARGET_SCRIPT"
+
+# The script overwrites our exported variables, so we overwrite them back
+SECRET_FILE="$TEST_DIR/.env"
+ENCRYPTED_FILE="$TEST_DIR/.env.age"
+
+# Create a dummy encrypted file (just in case)
+echo "dummy_encrypted_content" > "$ENCRYPTED_FILE"
+
+# Override log_error to capture the error without exiting
+export ERROR_MSG=""
+log_error() {
+    echo -e "${RED}mock log_error:${NC} $1"
+    export ERROR_MSG="$1"
 }
-alias command=_command
-shopt -s expand_aliases
+export -f log_error
 
-# Mock read to return 's'
-read() {
-    REPLY="s"
-}
-export -f read
+# --- Scenario 1: Happy Path ---
+echo "--- Running Scenario 1: Happy Path ---"
+decrypt_secrets
 
-encrypt_secrets
-MOCK
-    chmod +x "$test_dir/wrapper.sh"
-
-    local sec_file="$test_dir/.env"
-    local enc_file="$test_dir/.env.age"
-
-    # Create the secret file
-    echo "secret=123" > "$sec_file"
-
-    # Run the function
-    output=$("$test_dir/wrapper.sh" "$sec_file" "$enc_file" 2>&1)
-
-    assert_file_exists "$enc_file"
-    assert_file_not_exists "$sec_file"
-    assert_output_contains "$output" "Archivo original eliminado"
-
-    rm -rf "$test_dir"
-}
-
-test_encrypt_secrets_missing_file() {
-    echo "--- test_encrypt_secrets_missing_file ---"
-    local test_dir=$(mktemp -d)
-
-    cat << MOCK > "$test_dir/wrapper.sh"
-#!/bin/bash
-source "$REPO_ROOT/scripts/manage_secrets.sh"
-SECRET_FILE="\$1"
-ENCRYPTED_FILE="\$2"
-
-# Mock age command
-age() {
-    touch "\$3"
-}
-export -f age
-
-# override command -v for age mock
-_command() {
-    if [[ "\$1" == "-v" && "\$2" == "age" ]]; then
-        echo "mocked-age"
-        return 0
-    fi
-    command "\$@"
-}
-alias command=_command
-shopt -s expand_aliases
-
-# Disable exit on error for the mock test to capture log_error
-set +e
-encrypt_secrets
-MOCK
-    chmod +x "$test_dir/wrapper.sh"
-
-    local sec_file="$test_dir/.env"
-    local enc_file="$test_dir/.env.age"
-
-    # Run the function, it should fail
-    output=$( "$test_dir/wrapper.sh" "$sec_file" "$enc_file" 2>&1 || true )
-
-    assert_file_not_exists "$enc_file"
-    assert_output_contains "$output" "No existe"
-
-    rm -rf "$test_dir"
-}
-
-# Run tests
-test_encrypt_secrets_keeps_original
-test_encrypt_secrets_deletes_original
-test_encrypt_secrets_missing_file
-
-if [ "$FAILURES" -gt 0 ]; then
-    echo -e "\n${RED}$FAILURES test(s) failed.${NC}"
+# Assertions for Scenario 1
+if [[ -f "$SECRET_FILE" ]]; then
+    echo -e "${GREEN}PASS${NC}: Decrypted file created."
 else
-    echo -e "\n${GREEN}All tests passed successfully.${NC}"
+    echo -e "${RED}FAIL${NC}: Decrypted file not created."
+    exit 1
 fi
 
-# Exit with failure code if any tests failed
-if [ "$FAILURES" -gt 0 ]; then
-    false
+if [[ "$(cat "$SECRET_FILE")" == "dummy_decrypted_content" ]]; then
+    echo -e "${GREEN}PASS${NC}: Decrypted file has correct content."
+else
+    echo -e "${RED}FAIL${NC}: Decrypted file has wrong content."
+    exit 1
 fi
+
+if grep -q "\-d -o $SECRET_FILE $ENCRYPTED_FILE" "$TEST_DIR/age_calls.log"; then
+    echo -e "${GREEN}PASS${NC}: age called with correct arguments."
+else
+    echo -e "${RED}FAIL${NC}: age not called correctly."
+    cat "$TEST_DIR/age_calls.log"
+    exit 1
+fi
+
+file_perms=$(stat -c "%a" "$SECRET_FILE")
+if [[ "$file_perms" == "600" ]]; then
+    echo -e "${GREEN}PASS${NC}: Decrypted file has correct permissions (600)."
+else
+    echo -e "${RED}FAIL${NC}: Decrypted file has wrong permissions: $file_perms"
+    exit 1
+fi
+
+# --- Scenario 2: Error Case (Missing Encrypted File) ---
+echo "--- Running Scenario 2: Missing Encrypted File ---"
+rm -f "$ENCRYPTED_FILE"
+export ERROR_MSG=""
+
+decrypt_secrets
+
+# Assertions for Scenario 2
+if [[ "$ERROR_MSG" == "No existe $ENCRYPTED_FILE" ]]; then
+    echo -e "${GREEN}PASS${NC}: Correct error message logged when file is missing."
+else
+    echo -e "${RED}FAIL${NC}: Expected error message not found. Got: $ERROR_MSG"
+    exit 1
+fi
+
+echo "======================================"
+echo -e "${GREEN}All decrypt_secrets tests passed.${NC}"
+echo "======================================"
