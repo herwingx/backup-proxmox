@@ -235,9 +235,11 @@ log_header "[3/5] Respaldo de Configs a Nube (Diario)"
 
 # 2.1 SUBIR CONFIGS
 log_info "Destino: $GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs"
+COPY_CONFIGS_OK=false
 if rclone copy "$CONFIG_DEST/host-config-$HOST_NAME-$DATE.tar.gz" \
     "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs" 2>&1; then
     log_success "Configs subidas a Drive."
+    COPY_CONFIGS_OK=true
 else
     log_error "Error al subir configs a Drive."
     CLOUD_OK=false
@@ -292,6 +294,7 @@ if [ "$DO_FULL_SYNC" = true ]; then
     log_step "Subiendo backups de VMs hoy ($PVE_DATE)..."
     
     # Subir Dumps
+    COPY_VMS_OK=false
     if rclone copy "$BACKUP_DIR/dump" "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM" \
         --transfers=4 \
         --progress \
