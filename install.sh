@@ -87,9 +87,10 @@ EXISTING_CRON=""
 CURRENT_HOUR="3"
 CURRENT_MIN="0"
 
-if crontab -l 2>/dev/null | grep -q "$SCRIPT_PATH"; then
+EXISTING_CRON=$(crontab -l 2>/dev/null | grep "$SCRIPT_PATH" || true)
+
+if [ -n "$EXISTING_CRON" ]; then
     log_warn "Se detectó una instalación existente."
-    EXISTING_CRON=$(crontab -l 2>/dev/null | grep "$SCRIPT_PATH")
     
     # Extraer hora actual del cron
     CURRENT_MIN=$(echo "$EXISTING_CRON" | awk '{print $1}')
