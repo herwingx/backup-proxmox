@@ -19,10 +19,11 @@
 | Característica          | Descripción                                                                                             |
 | :---------------------- | :------------------------------------------------------------------------------------------------------ |
 | 💾 **Backup Local**      | Ejecución diaria de `vzdump` para VMs y Contenedores LXC con rotación configurable (Default: 3 copias). |
-| ☁️ **Sync Híbrido**      | Estrategia inteligente: Configs se suben a diario, Backups pesados cada 3 días a Google Drive.          |
+| ☁️ **Sync Híbrido**      | Estrategia inteligente: Configs se suben a diario, Backups pesados cada 3 días a Google Drive. Sistema *Stateful* para asegurar intervalos precisos. |
+| 🛡️ **Tolerancia a Fallos**| `rclone` verifica integridad antes de limpiar. Manejo de señales (`traps`) para alertar sobre cancelaciones o cierres inesperados. |
 | 🔐 **Zero Knowledge**    | Gestión de secretos segura usando `age` para encriptar tokens y credenciales en el repositorio.         |
 | 📱 **Alertas Real-Time** | Notificaciones detalladas por Telegram al iniciar, completar o fallar un respaldo.                      |
-| 🤖 **Automatización**    | Instalador interactivo que configura Cronjobs, Logrotate y dependencias automáticamente.                |
+| 🤖 **Automatización**    | Instalador interactivo que configura Cronjobs, Logrotate y dependencias automáticamente. Logs limpios (`cron` mode). |
 | 📦 **Dependencias Auto** | Integración nativa con `dotfiles` para el manejo de `rclone` y credenciales de nube.                    |
 
 ---
@@ -144,16 +145,17 @@ sequenceDiagram
 
     rect rgb(240, 248, 255)
     note right of Script: Sincronización Inteligente
-    alt Solo Configs (Días 1, 2, 4, 5...)
-        Script->>Cloud: Rclone sync (Configs)
-    else Full Backup (Días 3, 6, 9...)
-        Script->>Cloud: Rclone sync (VMs + Configs)
+    alt Solo Configs (Días 1, 2)
+        Script->>Cloud: rclone copy (Configs)
+    else Full Backup (Día 3)
+        Script->>Cloud: rclone copy (VMs + Configs)
+        Script->>Cloud: [Si copy = OK] rclone delete (Antiguos)
     end
     end
 
     Script->>TG: ✅ Reporte de Éxito
     
-    opt Error Crítico
+    opt Error Crítico / Cancelación (Trap)
         Script->>TG: ❌ Alerta de Fallo + Logs
     end
 ```
@@ -204,11 +206,14 @@ nano /etc/proxmox-backup/config.env
 **Notificaciones**
 - **Telegram Bot API**: Alertas instantáneas.
 
-## 🔒 Seguridad
+## 🔒 Seguridad & Estabilidad
 
+- ✅ **Tolerancia a Fallos en la Nube**: Las rutinas de limpieza en Google Drive (`rclone delete`) **nunca** se ejecutan si la subida previa de datos falla, evitando escenarios críticos donde se puedan perder los respaldos en la nube debido a cortes de conexión.
+- ✅ **Ciclos de Nube Basados en Estado**: El script utiliza un archivo de control de estado local para determinar las frecuencias de subida, previniendo los fallos lógicos en los cálculos modulares durante los cambios de año bisiesto.
+- ✅ **Protección contra Cierres (Traps)**: Si el script o el servidor se detienen repentinamente, el sistema interceptará las señales (`SIGINT`, `SIGTERM`, etc.) y enviará una alerta de emergencia garantizada por Telegram, lo cual eleva la confiabilidad.
 - ✅ **Secretos Encriptados**: Las credenciales nunca se suben en texto plano al repositorio (uso de `.env.age`).
 - ✅ **Permisos Restrictivos**: Los archivos de configuración en `/etc/proxmox-backup` tienen permisos `600` (solo root).
-- ✅ **Logs Rotativos**: `logrotate` configurado para evitar saturación de disco, manteniendo 7 días de historial.
+- ✅ **Logs Limpios y Rotativos**: Los logs en Cron ignoran los colores ANSI, facilitando la lectura. Además, `logrotate` mantiene un histórico de 7 días comprimido.
 
 ## 🤝 Contribuir
 

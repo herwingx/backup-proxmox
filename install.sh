@@ -87,9 +87,10 @@ EXISTING_CRON=""
 CURRENT_HOUR="3"
 CURRENT_MIN="0"
 
-if crontab -l 2>/dev/null | grep -q "$SCRIPT_PATH"; then
+EXISTING_CRON=$(crontab -l 2>/dev/null | grep "$SCRIPT_PATH" || true)
+
+if [ -n "$EXISTING_CRON" ]; then
     log_warn "Se detectó una instalación existente."
-    EXISTING_CRON=$(crontab -l 2>/dev/null | grep "$SCRIPT_PATH")
     
     # Extraer hora actual del cron
     CURRENT_MIN=$(echo "$EXISTING_CRON" | awk '{print $1}')
@@ -148,7 +149,7 @@ elif [ -f "$ENCRYPTED_FILE" ]; then
     log_info "Archivo encriptado encontrado: .env.age"
     log_info "Desencriptando con age..."
     
-    if age -d -o "$LOCAL_CONFIG" "$ENCRYPTED_FILE" 2>/dev/null; then
+    if (umask 077 && age -d -o "$LOCAL_CONFIG" "$ENCRYPTED_FILE" 2>/dev/null); then
         source "$LOCAL_CONFIG"
         rm -f "$LOCAL_CONFIG"  # Limpiar archivo temporal
         log_success "Secretos de Telegram cargados correctamente."
@@ -197,8 +198,8 @@ cat > "$CONFIG_FILE" << EOF
 # Generado: $(date)
 
 # Telegram Notifications
-TELEGRAM_TOKEN="$TELEGRAM_TOKEN"
-TELEGRAM_CHAT_ID="$TELEGRAM_CHAT_ID"
+TELEGRAM_TOKEN=$(printf '%q' "$TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID=$(printf '%q' "$TELEGRAM_CHAT_ID")
 EOF
 
 chmod 600 "$CONFIG_FILE"

@@ -22,7 +22,8 @@ GDRIVE_SYSTEM="Proxmox System"
 GDRIVE_DATA="Proxmox Data"
 
 # --- [3] CONFIGURACIÓN DE FRECUENCIA ---
-CLOUD_SYNC_DAYS=7  # Subida semanal a Drive 
+CLOUD_SYNC_DAYS=3  # Subida a Drive cada X días
+SYNC_STATE_FILE="/var/tmp/proxmox-backup-last-sync"
 
 # --- [4] CONFIGURACIÓN DE TELEGRAM ---
 CONFIG_FILE="/etc/proxmox-backup/config.env"
@@ -45,12 +46,21 @@ CLOUD_OK=true
 ERROR_MSG=""
 
 # --- ESTILOS Y COLORES ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' 
+if [ -t 1 ]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    CYAN='\033[0;36m'
+    NC='\033[0m'
+else
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    CYAN=''
+    NC=''
+fi
 
 log_header() {
     echo -e "\n${BLUE}============================================================${NC}"
@@ -61,6 +71,7 @@ log_info() { echo -e "${CYAN}ℹ INFO:${NC} $1"; }
 log_step() { echo -e "${YELLOW}➜ $1${NC}"; }
 log_success() { echo -e "${GREEN}✔ OK:${NC} $1"; }
 log_error() { echo -e "${RED}✖ ERROR:${NC} $1"; BACKUP_STATUS="FAILED"; ERROR_MSG="$1"; }
+log_warn() { echo -e "${YELLOW}⚠ WARN:${NC} $1"; }
 
 # --- FUNCIÓN DE TELEGRAM ---
 send_telegram() {
@@ -76,10 +87,34 @@ send_telegram() {
         -d text="$MESSAGE" \
         -d parse_mode="Markdown" > /dev/null 2>&1
 }
+
+# --- MANEJO DE ERRORES (TRAP) ---
+trap_handler() {
+    local EXIT_CODE=$?
+    # Desactivar el trap para evitar bucles si falla otra cosa dentro
+    trap - EXIT SIGINT SIGTERM
+
+    if [ "$EXIT_CODE" -ne 0 ]; then
+        log_error "El script terminó abruptamente con código $EXIT_CODE."
+        send_telegram "🚨 *ALARMA DE SISTEMA*
+
+El proceso de backup en \`$HOST_NAME\` se detuvo de forma inesperada.
+Código de salida: $EXIT_CODE
+
+_Revisa los logs inmediatamente en /var/log/proxmox-backup/_"
+    fi
+    exit $EXIT_CODE
+}
+
+trap 'trap_handler' EXIT SIGINT SIGTERM
+
 # ==============================================================================
 #  INICIO DEL PROCESO
 # ==============================================================================
-clear
+if [ -t 1 ]; then
+    clear
+fi
+
 echo -e "${BLUE}"
 cat << "EOF"
   ╔════════════════════════════════════════════════════════════════════╗
@@ -208,24 +243,44 @@ else
 fi
 
 # 2.2 LIMPIEZA DE CONFIGS ANTIGUAS
-log_step "Mantenimiento: Dejando solo la versión más reciente..."
-rclone delete "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs" \
-    --min-age 1d \
-    --include "*.tar.gz" 2>&1
+if [ "$CLOUD_OK" = true ]; then
+    log_step "Mantenimiento: Dejando solo la versión más reciente..."
+    rclone delete "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM/Configs" \
+        --min-age 1d \
+        --include "*.tar.gz" 2>&1
 
-if [ $? -eq 0 ]; then
-    log_success "Configs antiguas eliminadas."
+    if [ $? -eq 0 ]; then
+        log_success "Configs antiguas eliminadas."
+    else
+        log_error "Error al limpiar configs antiguas."
+    fi
 else
-    log_error "Error al limpiar configs antiguas."
+    log_warn "Omitiendo limpieza de configs antiguas porque la subida falló."
 fi
 
 
 # ------------------------------------------------------------------------------
-# FASE 3: CLOUD VMS & DATA (CADA 3 DÍAS)
+# FASE 3: CLOUD VMS & DATA (CADA X DÍAS)
 # ------------------------------------------------------------------------------
 log_header "[4/5] Verificación de Ciclo de Nube (VMs y Data)"
 
-if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
+DO_FULL_SYNC=false
+
+if [ ! -f "$SYNC_STATE_FILE" ]; then
+    DO_FULL_SYNC=true
+    log_info "No se encontró archivo de estado previo. Se forzará la sincronización."
+else
+    LAST_SYNC=$(cat "$SYNC_STATE_FILE")
+    CURRENT_TIME=$(date +%s)
+    # Sumamos 3600 segundos (1 hora) como margen de tolerancia
+    DIFF_DAYS=$(( (CURRENT_TIME - LAST_SYNC + 3600) / 86400 ))
+
+    if [ "$DIFF_DAYS" -ge "$CLOUD_SYNC_DAYS" ]; then
+        DO_FULL_SYNC=true
+    fi
+fi
+
+if [ "$DO_FULL_SYNC" = true ]; then
     
     echo -e "${GREEN}★ HOY TOCA SINCRONIZACIÓN COMPLETA (VMs + DATA) ★${NC}"
     
@@ -242,24 +297,28 @@ if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
         --include "*$PVE_DATE*" \
         --include "*.log" 2>&1; then
         log_success "Backups de VMs subidos a Drive."
+
+        # Limpieza Agresiva de VMs (Solo si copy fue exitoso)
+        log_header "LIMPIEZA DE VMS ANTIGUAS"
+        log_step "Eliminando versiones antiguas en Drive..."
+
+        # BORRA los viejos, dejando SOLO EL MÁS NUEVO en la Nube
+        # Se elimina todo lo que tenga más de 1 día de antigüedad
+        rclone delete "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM" \
+            --min-age 1d \
+            --include "*.zst" \
+            --include "*.log" \
+            --include "*.vma.zst" \
+            --include "*.tar.zst" \
+            --verbose
+
+        log_success "Historial de VMs limpiado (Solo queda el de hoy)."
+
     else
         log_error "Error al subir backups a Drive."
+        log_warn "Omitiendo limpieza agresiva de VMs en Drive porque la subida falló."
         CLOUD_OK=false
     fi
-
-    # Limpieza Agresiva de VMs
-    log_header "LIMPIEZA DE VMS ANTIGUAS"
-    log_step "Eliminando versiones antiguas en Drive..."
-    
-    rclone delete "$RCLONE_REMOTE:$GDRIVE_ROOT/$GDRIVE_SYSTEM" \
-        --min-age 1d \
-        --include "*.zst" \
-        --include "*.log" \
-        --include "*.vma.zst" \
-        --include "*.tar.zst" \
-        --verbose
-
-    log_success "Historial de VMs limpiado (Solo queda el de hoy)."
 
     # ---------------------------------------------------------
     # 3.2 SUBIR DATOS
@@ -281,10 +340,23 @@ if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
         CLOUD_OK=false
     fi
 
+    if [ "$CLOUD_OK" = true ]; then
+        date +%s > "$SYNC_STATE_FILE"
+        log_success "Estado de sincronización actualizado."
+    fi
+
 else
     echo -e "${YELLOW}SKIP: Hoy no toca subida masiva (VMs/Data).${NC}"
     echo "Se han subido las Configs, pero las VMs se mantienen localmente."
-    echo "Próxima subida masiva: En $((CLOUD_SYNC_DAYS - (DAY_OF_YEAR % CLOUD_SYNC_DAYS))) día(s)."
+    if [ -f "$SYNC_STATE_FILE" ]; then
+        LAST_SYNC=$(cat "$SYNC_STATE_FILE")
+        CURRENT_TIME=$(date +%s)
+        # Sumamos 3600 segundos (1 hora) como margen de tolerancia para evitar
+        # que ligeros adelantos del cronjob o recortes de división retrasen el ciclo
+        DIFF_DAYS=$(( (CURRENT_TIME - LAST_SYNC + 3600) / 86400 ))
+        NEXT_SYNC=$((CLOUD_SYNC_DAYS - DIFF_DAYS))
+        echo "Próxima subida masiva: En ${NEXT_SYNC} día(s)."
+    fi
 fi
 
 # ==============================================================================
@@ -300,19 +372,29 @@ echo -e "${GREEN} PROCESO COMPLETADO EN ${ELAPSED_MIN} MIN Y ${ELAPSED_SEC} SEG.
 echo -e "${BLUE}============================================================${NC}"
 
 # --- NOTIFICACIÓN POR TELEGRAM ---
+# Desactivamos el trap normal para enviar el mensaje final de manera controlada
+trap - EXIT SIGINT SIGTERM
+
 if [ "$BACKUP_STATUS" == "SUCCESS" ]; then
     CLOUD_STATUS=""
     # Lógica de Estado de Nube
     if [ "$CLOUD_OK" = true ]; then
-        if [ $((DAY_OF_YEAR % CLOUD_SYNC_DAYS)) -eq 0 ]; then
+        if [ "$DO_FULL_SYNC" = true ]; then
             CLOUD_STATUS="☁️ Drive: ✅ Configs + VMs (Completo)"
         else
-            NEXT_CLOUD=$((CLOUD_SYNC_DAYS - (DAY_OF_YEAR % CLOUD_SYNC_DAYS)))
+            if [ -f "$SYNC_STATE_FILE" ]; then
+                LAST_SYNC=$(cat "$SYNC_STATE_FILE")
+                CURRENT_TIME=$(date +%s)
+                DIFF_DAYS=$(( (CURRENT_TIME - LAST_SYNC) / 86400 ))
+                NEXT_CLOUD=$((CLOUD_SYNC_DAYS - DIFF_DAYS))
+            else
+                NEXT_CLOUD=$CLOUD_SYNC_DAYS
+            fi
             CLOUD_STATUS="☁️ Drive: ✅ Solo Configs
 ⏳ VMs: En ${NEXT_CLOUD} día(s)"
         fi
     else
-        CLOUD_STATUS="☁️ Drive: ❌ Fallo en subida"
+        CLOUD_STATUS="☁️ Drive: ❌ Fallo en subida (Manteniendo local)"
     fi
 
     TELEGRAM_MSG="✅ *Backup Completado*
@@ -321,7 +403,7 @@ if [ "$BACKUP_STATUS" == "SUCCESS" ]; then
 📅 Fecha: $DATE
 ⏱️ Duración: ${ELAPSED_MIN}m ${ELAPSED_SEC}s
 
-📦 Local: Guardado
+📦 Local: ✅ Completado
 $CLOUD_STATUS
 
 _Proxmox Smart Backup System_"
@@ -333,9 +415,10 @@ else
 📅 Fecha: $DATE
 ⏱️ Duración: ${ELAPSED_MIN}m ${ELAPSED_SEC}s
 
-⚠️ Error: $ERROR_MSG
+⚠️ Error principal:
+\`$ERROR_MSG\`
 
-_Revisa los logs en /var/log/proxmox-backup/_"
+_Revisa urgentemente los logs en /var/log/proxmox-backup/_"
 fi
 
 send_telegram "$TELEGRAM_MSG"
