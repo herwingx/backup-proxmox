@@ -1,36 +1,27 @@
 #!/bin/bash
 
 # ==============================================================================
-#  PROXMOX SMART BACKUP SYSTEM (FINAL VISUAL)
+#  PROXMOX SMART BACKUP SYSTEM
 # ==============================================================================
-#  Características:
-#  1. Local: Mantiene últimos 3 backups (Gestionado por Proxmox).
-#  2. Nube:  Sube cada 3 días. BORRA los viejos, dejando SOLO EL MÁS NUEVO.
-#  3. Visual: Muestra progreso detallado para no parecer "congelado".
+#  Frecuencias, rutas y notificaciones se configuran en /etc/proxmox-backup/config.env
+#  Ver config.env.example y README para todas las opciones.
 # ==============================================================================
 
-# --- [1] CONFIGURACIÓN DE RUTAS Y DISCOS ---
+CONFIG_FILE="/etc/proxmox-backup/config.env"
+
+# --- Valores por defecto (sobrescritos por config.env si existe) ---
 BACKUP_DIR="/mnt/backups"
 DATA_DIR="/mnt/data"
-# ID exacto en Datacenter > Storage (Debe tener Retention: Keep Last=3)
-PROXMOX_STORAGE_ID="backups-vms" 
-
-# --- [2] CONFIGURACIÓN DE CLOUD (RCLONE) ---
-RCLONE_REMOTE="gdrive" 
+PROXMOX_STORAGE_ID="backups-vms"
+RCLONE_REMOTE="gdrive"
 GDRIVE_ROOT="Server Backups"
 GDRIVE_SYSTEM="Proxmox System"
 GDRIVE_DATA="Proxmox Data"
-
-# --- [3] CONFIGURACIÓN DE FRECUENCIA ---
-CLOUD_SYNC_DAYS=3  # Subida a Drive cada X días
+CLOUD_SYNC_DAYS=3
 SYNC_STATE_FILE="/var/tmp/proxmox-backup-last-sync"
-
-# --- [4] CONFIGURACIÓN DE TELEGRAM ---
-CONFIG_FILE="/etc/proxmox-backup/config.env"
 TELEGRAM_TOKEN=""
 TELEGRAM_CHAT_ID=""
 
-# Cargar configuración si existe
 if [ -f "$CONFIG_FILE" ]; then
     source "$CONFIG_FILE"
 fi
@@ -327,7 +318,7 @@ if [ "$DO_FULL_SYNC" = true ]; then
     # ---------------------------------------------------------
     # 3.2 SUBIR DATOS
     # ---------------------------------------------------------
-    log_header "[5/5] Sincronizando Datos (/mnt/data)"
+    log_header "[5/5] Sincronizando Datos ($DATA_DIR)"
     log_info "Destino: $GDRIVE_ROOT/$GDRIVE_DATA"
     log_step "Escaneando cambios..."
 

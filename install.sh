@@ -16,6 +16,7 @@ SCRIPT_PATH="$INSTALL_DIR/proxmox-backup"
 CONFIG_DIR="/etc/proxmox-backup"
 CONFIG_FILE="$CONFIG_DIR/config.env"
 LOG_DIR="/var/log/proxmox-backup"
+INSTALL_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 # --- COLORES ---
 RED='\033[0;31m'
@@ -192,17 +193,29 @@ mkdir -p "$LOG_DIR"
 mkdir -p "$CONFIG_DIR"
 log_success "Directorios creados: $LOG_DIR, $CONFIG_DIR"
 
-# Guardar configuración de Telegram
-touch "$CONFIG_FILE"
+# Configuración: usar plantilla completa si existe, si no crear mínima
+if [ ! -f "$CONFIG_FILE" ] && [ -f "$INSTALL_ROOT/config.env.example" ]; then
+    cp "$INSTALL_ROOT/config.env.example" "$CONFIG_FILE"
+    log_success "Configuración creada desde plantilla (config.env.example)."
+else
+    touch "$CONFIG_FILE"
+fi
 chmod 600 "$CONFIG_FILE"
-cat > "$CONFIG_FILE" << EOF
-# Proxmox Smart Backup - Configuración
-# Generado: $(date)
 
-# Telegram Notifications
-TELEGRAM_TOKEN=$(printf '%q' "$TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID=$(printf '%q' "$TELEGRAM_CHAT_ID")
-EOF
+# Actualizar Telegram (y CLOUD_SYNC_DAYS si no está definido) en config
+if grep -q '^TELEGRAM_TOKEN=' "$CONFIG_FILE" 2>/dev/null; then
+    sed -i "s|^TELEGRAM_TOKEN=.*|TELEGRAM_TOKEN=$(printf '%q' "$TELEGRAM_TOKEN")|" "$CONFIG_FILE"
+else
+    echo "TELEGRAM_TOKEN=$(printf '%q' "$TELEGRAM_TOKEN")" >> "$CONFIG_FILE"
+fi
+if grep -q '^TELEGRAM_CHAT_ID=' "$CONFIG_FILE" 2>/dev/null; then
+    sed -i "s|^TELEGRAM_CHAT_ID=.*|TELEGRAM_CHAT_ID=$(printf '%q' "$TELEGRAM_CHAT_ID")|" "$CONFIG_FILE"
+else
+    echo "TELEGRAM_CHAT_ID=$(printf '%q' "$TELEGRAM_CHAT_ID")" >> "$CONFIG_FILE"
+fi
+if ! grep -q '^CLOUD_SYNC_DAYS=' "$CONFIG_FILE" 2>/dev/null; then
+    echo "CLOUD_SYNC_DAYS=3" >> "$CONFIG_FILE"
+fi
 log_success "Configuración guardada: $CONFIG_FILE"
 
 # Copiar script de backup

@@ -3,18 +3,19 @@
 # ==============================================================================
 #  GESTOR DE SECRETOS - PROXMOX BACKUP
 # ==============================================================================
-#  Uso:
-#    ./manage_secrets.sh encrypt    # Encripta config.env → config.env.age
-#    ./manage_secrets.sh decrypt    # Desencripta config.env.age → config.env
+#  Uso (opcional: para guardar solo Telegram encriptado en el repo):
+#    ./manage_secrets.sh encrypt    # Encripta .env → .env.age
+#    ./manage_secrets.sh decrypt    # Desencripta .env.age → .env
 #    ./manage_secrets.sh edit       # Edita y re-encripta
 # ==============================================================================
 
 set -e
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN (raíz del repo, donde está install.sh) ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SECRET_FILE="$SCRIPT_DIR/.env"
-ENCRYPTED_FILE="$SCRIPT_DIR/.env.age"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SECRET_FILE="$REPO_ROOT/.env"
+ENCRYPTED_FILE="$REPO_ROOT/.env.age"
 
 # --- COLORES ---
 RED='\033[0;31m'
@@ -84,8 +85,9 @@ edit_secrets() {
     fi
     
     if [ ! -f "$SECRET_FILE" ]; then
-        log_info "Creando nuevo archivo de secretos..."
-        cp "$SCRIPT_DIR/.env.example" "$SECRET_FILE"
+        log_info "Creando nuevo archivo de secretos (.env con TELEGRAM_TOKEN y TELEGRAM_CHAT_ID)..."
+        printf '%s\n' 'TELEGRAM_TOKEN=""' 'TELEGRAM_CHAT_ID=""' > "$SECRET_FILE"
+        chmod 600 "$SECRET_FILE"
     fi
     
     # Editar
@@ -114,8 +116,8 @@ main() {
             echo "Uso: $0 {encrypt|decrypt|edit}"
             echo ""
             echo "Comandos:"
-            echo "  encrypt  - Encripta config.env → config.env.age"
-            echo "  decrypt  - Desencripta config.env.age → config.env"
+            echo "  encrypt  - Encripta .env → .env.age (solo Telegram)"
+            echo "  decrypt  - Desencripta .env.age → .env"
             echo "  edit     - Edita y re-encripta los secretos"
             exit 1
             ;;
